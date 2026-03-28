@@ -36,7 +36,28 @@ def run(url: str, audio_name: str, transcript: str, analysis: str,
 {analysis[:400]}
 """
     (report_dir / "estado.md").write_text(estado, encoding="utf-8")
+    _copy_to_vault(report_dir)
     _notify_telegram(veredicto, analysis, report_dir)
+
+
+def _copy_to_vault(report_dir: Path):
+    """Copia el reporte como nota Markdown al Vault de Obsidian."""
+    vault_dir = Path("/home/chuy/Documents/Obsidian Vault/Podcast Analyzer/Reportes")
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    date_part = report_dir.parent.name  # e.g. 2026-03-28
+    video_id = report_dir.name          # e.g. DQUdGB_CdQ7
+    output = vault_dir / f"{date_part}_{video_id}.md"
+
+    lines = [f"# Reporte: {video_id} ({date_part})\n"]
+    for section in ["transcript.txt", "dinamica.md", "emociones.md", "prosodia.md",
+                    "facial.md", "analysis.md", "veredicto.md", "estado.md"]:
+        f = report_dir / section
+        if f.exists():
+            lines += ["\n---\n", f"## {section}\n\n", f.read_text(encoding="utf-8")]
+
+    output.write_text("\n".join(lines), encoding="utf-8")
+    print(f"   → Vault: {output}")
 
 
 def _notify_telegram(veredicto: str, analysis: str, report_dir: Path):
