@@ -10,7 +10,7 @@ from pathlib import Path
 def parse_transcript_segments(transcript: str) -> list:
     segments = []
     for line in transcript.strip().split("\n"):
-        m = re.match(r"\[(\w+_\d+) ([\d.]+)s\] (.+)", line)
+        m = re.match(r"\[([^\] ]+) ([\d.]+)s\] (.+)", line)
         if m:
             segments.append({
                 "speaker": m.group(1),
