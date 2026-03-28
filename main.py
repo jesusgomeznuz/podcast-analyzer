@@ -19,6 +19,8 @@ import agent_facial
 import agent_analizador
 import agent_veredicto
 import agent_reportero
+import agent_visualizador
+import agent_html_report
 
 TMP_DIR = Path(__file__).parent / "tmp"
 REPORTS_DIR = Path(__file__).parent / "reports"
@@ -91,14 +93,21 @@ def main():
     veredicto = agent_veredicto.run(analysis, report_dir / "veredicto.md")
     print(f"      → analysis.md + veredicto.md")
 
-    print("\n[8/8] 📋 Reporte final...")
+    print("\n[8/9] 📋 Reporte final...")
     agent_reportero.run(args.url, audio_path.name, transcript,
                         analysis, veredicto, report_dir)
     print(f"      → estado.md + Telegram")
 
+    print("\n[9/9] 📊 Generando gráficas y reporte HTML...")
+    charts = agent_visualizador.run(report_dir)
+    print(f"      → {len(charts)} gráficas generadas")
+    html_path = agent_html_report.run(args.url, report_dir, charts)
+    print(f"      → {html_path}")
+
     print("\n" + "─" * 55)
     print(f"✅ Completado — {datetime.now().strftime('%H:%M')}")
     print(f"📁 {report_dir}/")
+    print(f"🌐 {html_path}")
     print("─" * 55)
 
 
