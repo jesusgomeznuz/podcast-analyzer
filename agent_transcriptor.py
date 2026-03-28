@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 
 MODEL_DIR = "/home/chuy/models/whisper"
-HF_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
 
 
 def run(audio_path: Path, api_key: str = None) -> str:
@@ -41,11 +40,12 @@ def _transcribe(audio_path: Path) -> str:
     )
 
     # 3. Diarización (quién habla cuándo)
+    HF_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
     if HF_TOKEN:
         from whisperx.diarize import DiarizationPipeline, assign_word_speakers
         diarize_model = DiarizationPipeline(token=HF_TOKEN, device="cpu")
         diarize_segments = diarize_model(audio, min_speakers=2, max_speakers=10)
-        result = assign_word_speakers(diarize_segments, result)
+        result = assign_word_speakers(diarize_segments, result, fill_nearest=True)
 
     # 4. Formatear como texto con hablantes
     lines = []

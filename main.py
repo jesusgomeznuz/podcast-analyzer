@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Orquestador — Podcast Analyzer Fase 2"""
+# IMPORTANTE: load_dotenv() debe correr ANTES de los imports de agentes
+# para que os.environ.get("HUGGINGFACE_TOKEN") funcione en tiempo de módulo
+from dotenv import load_dotenv
+load_dotenv()
+
 import argparse
 import librosa
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
 import agent_descargador
 import agent_transcriptor
@@ -15,8 +19,6 @@ import agent_facial
 import agent_analizador
 import agent_veredicto
 import agent_reportero
-
-load_dotenv()
 
 TMP_DIR = Path(__file__).parent / "tmp"
 REPORTS_DIR = Path(__file__).parent / "reports"
