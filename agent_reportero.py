@@ -40,8 +40,8 @@ def run(url: str, audio_name: str, transcript: str, analysis: str,
 
 
 def _notify_telegram(veredicto: str, analysis: str, report_dir: Path):
-    token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    token = os.environ.get("AGENT_TELEGRAM_TOKEN")
+    chat_id = os.environ.get("AGENT_TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         print("   ⚠️  Sin credenciales Telegram, saltando notificación.")
         return

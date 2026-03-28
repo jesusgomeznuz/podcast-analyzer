@@ -1,4 +1,11 @@
 yt-dlp
-openai
-anthropic
+openai-whisper
+whisperx
+opensmile
+librosa
+praat-parselmouth
+webrtcvad
+convokit
+funasr
+modelscope
 python-dotenv

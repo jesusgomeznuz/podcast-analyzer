@@ -1,27 +1,58 @@
-"""Subagente 2 — Transcriptor: MP3 → texto con timestamps"""
-from openai import OpenAI, AuthenticationError
+"""Subagente 2 — Transcriptor: MP3 → texto con diarización (WhisperX)"""
+import os
 from pathlib import Path
 
-# Modelos Whisper en el SSD para no llenar la partición interna
-WHISPER_MODEL_DIR = "/mnt/ssd/linux/models"
+MODEL_DIR = "/home/chuy/models/whisper"
+HF_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
 
 
-def run(audio_path: Path, api_key: str) -> str:
-    try:
-        client = OpenAI(api_key=api_key)
-        with open(audio_path, "rb") as f:
-            response = client.audio.transcriptions.create(
-                model="whisper-1", file=f, response_format="text"
-            )
-        return response
-    except (AuthenticationError, Exception) as e:
-        print(f"   ⚠️  API falló ({type(e).__name__}), usando Whisper local (tiny)...")
-        return _local(audio_path)
+def run(audio_path: Path, api_key: str = None) -> str:
+    """Transcribe con WhisperX. Usa cache si ya existe el transcript."""
+    cache_path = audio_path.with_suffix(".transcript.txt")
+    if cache_path.exists():
+        print(f"   → Cache encontrado, cargando {cache_path.name}")
+        return cache_path.read_text(encoding="utf-8")
+
+    transcript = _transcribe(audio_path)
+    cache_path.write_text(transcript, encoding="utf-8")
+    return transcript
 
 
-def _local(audio_path: Path) -> str:
-    import whisper
-    # "tiny" para mayor velocidad en CPU — sacrifica algo de precisión
-    model = whisper.load_model("tiny", download_root=WHISPER_MODEL_DIR)
-    result = model.transcribe(str(audio_path), fp16=False)
-    return result["text"]
+def _transcribe(audio_path: Path) -> str:
+    import whisperx
+
+    Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
+
+    # 1. Transcripción con detección automática de idioma
+    model = whisperx.load_model(
+        "medium", device="cpu", compute_type="int8",
+        download_root=MODEL_DIR
+    )
+    audio = whisperx.load_audio(str(audio_path))
+    result = model.transcribe(audio, batch_size=8)
+    detected_lang = result.get("language", "es")
+
+    # 2. Alineación word-level
+    align_model, metadata = whisperx.load_align_model(
+        language_code=detected_lang, device="cpu"
+    )
+    result = whisperx.align(
+        result["segments"], align_model, metadata, audio, device="cpu"
+    )
+
+    # 3. Diarización (quién habla cuándo)
+    if HF_TOKEN:
+        from whisperx.diarize import DiarizationPipeline, assign_word_speakers
+        diarize_model = DiarizationPipeline(token=HF_TOKEN, device="cpu")
+        diarize_segments = diarize_model(audio, min_speakers=2, max_speakers=10)
+        result = assign_word_speakers(diarize_segments, result)
+
+    # 4. Formatear como texto con hablantes
+    lines = []
+    for seg in result["segments"]:
+        speaker = seg.get("speaker", "SPEAKER_?")
+        text = seg.get("text", "").strip()
+        start = seg.get("start", 0)
+        lines.append(f"[{speaker} {start:.1f}s] {text}")
+
+    return "\n".join(lines)

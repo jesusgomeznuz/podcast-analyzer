@@ -1,8 +1,10 @@
 .env
 reports/
+tmp/
 __pycache__/
 *.pyc
 *.mp3
 *.wav
 *.m4a
+*.transcript.txt
 venv/
