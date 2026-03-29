@@ -8,8 +8,7 @@ from pathlib import Path
 
 MODEL_DIR = "/home/chuy/models/whisper"
 MAC_HOST = "jesus@192.168.1.131"
-MAC_CONDA_ENV = "filtro"
-MAC_CONDA = "/Users/jesus/miniconda3/etc/profile.d/conda.sh"
+MAC_CONDA_ENV = "podcast-analyzer"
 
 
 def run(audio_path: Path, api_key: str = None) -> str:

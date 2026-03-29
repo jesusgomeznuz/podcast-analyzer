@@ -1,10 +1,60 @@
-"""Subagente — Prosodia y features acústicos por segmento de hablante"""
+"""Subagente — Prosodia y features acústicos por segmento de hablante
+Estrategia: Mac M4 via SSH → fallback ThinkPad CPU
+"""
+import os
 import re
 import time
+import subprocess
+import tempfile
 import librosa
 import numpy as np
 import opensmile
 from pathlib import Path
+
+MAC_HOST = "jesus@192.168.1.131"
+MAC_PY = "/Users/jesus/miniconda3/envs/podcast-analyzer/bin/python3"
+MAC_SCRIPTS_DIR = Path(__file__).parent / "mac_scripts"
+
+
+def _mac_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+             MAC_HOST, "echo ok"],
+            capture_output=True, text=True, timeout=8
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _run_on_mac(audio_path: Path, transcript: str) -> str:
+    remote_audio = f"/tmp/{audio_path.name}"
+    remote_transcript = f"/tmp/{audio_path.stem}_prosodia_transcript.txt"
+    remote_script = "/tmp/prosodia_mac.py"
+
+    subprocess.run(["scp", str(audio_path), f"{MAC_HOST}:{remote_audio}"], check=True)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        f.write(transcript)
+        local_transcript = f.name
+    subprocess.run(["scp", local_transcript, f"{MAC_HOST}:{remote_transcript}"], check=True)
+    os.unlink(local_transcript)
+
+    subprocess.run(["scp", str(MAC_SCRIPTS_DIR / "prosodia_mac.py"), f"{MAC_HOST}:{remote_script}"], check=True)
+
+    cmd = f'export PATH="/opt/homebrew/bin:/usr/bin:/bin:$PATH" && {MAC_PY} {remote_script} {remote_audio} {remote_transcript}'
+    result = subprocess.run(["ssh", MAC_HOST, cmd], capture_output=True, text=True, timeout=3600)
+
+    subprocess.run(["ssh", MAC_HOST, f"rm -f {remote_audio} {remote_transcript} {remote_script}"], capture_output=True)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Mac prosodia falló: {result.stderr[-500:]}")
+
+    output = result.stdout.strip()
+    if not output:
+        raise RuntimeError("Mac retornó output vacío")
+    return output
 
 
 def parse_transcript_segments(transcript: str) -> list:
@@ -21,6 +71,18 @@ def parse_transcript_segments(transcript: str) -> list:
 
 
 def run(audio_path: Path, transcript: str) -> str:
+    if _mac_available():
+        try:
+            print("   → Mac M4 detectada, procesando prosodia en Mac")
+            return _run_on_mac(audio_path, transcript)
+        except Exception as e:
+            print(f"   → Mac falló ({e}), usando CPU local")
+
+    print("   → Procesando prosodia en CPU local (ThinkPad)")
+    return _run_local(audio_path, transcript)
+
+
+def _run_local(audio_path: Path, transcript: str) -> str:
     t0 = time.time()
     y, sr = librosa.load(str(audio_path))
     segments = parse_transcript_segments(transcript)
@@ -28,12 +90,10 @@ def run(audio_path: Path, transcript: str) -> str:
     if not segments:
         return "No hay segmentos para analizar."
 
-    # Asignar tiempos de fin
     duration = len(y) / sr
     for i, seg in enumerate(segments):
         seg["end"] = segments[i + 1]["start"] if i + 1 < len(segments) else duration
 
-    # opensmile global (features del archivo completo para comparación)
     smile = opensmile.Smile(
         feature_set=opensmile.FeatureSet.eGeMAPSv02,
         feature_level=opensmile.FeatureLevel.Functionals,
@@ -42,7 +102,6 @@ def run(audio_path: Path, transcript: str) -> str:
 
     lines = ["# Análisis de Prosodia y Acústica\n"]
 
-    # Features globales
     cols = {
         "F0semitoneFrom27.5Hz_sma3nz_amean": "pitch",
         "loudness_sma3_amean": "volumen",
@@ -55,7 +114,6 @@ def run(audio_path: Path, transcript: str) -> str:
         if col in global_features.columns:
             lines.append(f"- {name}: {global_features[col].iloc[0]:.3f}")
 
-    # Por segmento de hablante
     lines.append("\n## Por segmento de hablante\n")
     try:
         import parselmouth
