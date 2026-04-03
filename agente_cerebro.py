@@ -416,8 +416,7 @@ Responde SOLO con JSON:
       "tema_general": "concepto abstracto y reutilizable en 2-4 palabras — lo suficientemente amplio para que OTROS episodios puedan referenciarlo",
       "slug": "tema-general-en-kebab-case-sin-acentos — derivado de tema_general, NO de tema_especifico",
       "campo_semantico": "territorio amplio al que pertenece este tema — 2-3 palabras en español, ej: 'Proceso creativo', 'Negocio creativo', 'Salud y vida', 'Tecnología', 'Identidad y cultura', 'Arte y expresión', 'Escritura', 'Sistemas personales' — usa uno existente si aplica, crea uno nuevo solo si ninguno encaja",
-      "fuente_exacta": "cita textual entre comillas O 'MM:SS — descripción del momento'",
-      "temas_relacionados": ["solo-slugs-que-aparecen-en-la-lista-de-temas-existentes-arriba"]
+      "fuente_exacta": "cita textual entre comillas O 'MM:SS — descripción del momento'"
     }}
   ],
   "datos_fandom": [
@@ -681,21 +680,9 @@ Host: [[Perfil del creador]] | Invitado: [[Personas/{invitado.get('slug', slugif
         # Set campo_semantico in frontmatter
         if campo:
             _set_campo_semantico(temas_dir / f"{slug}.md", campo)
-        # Add cross-links to related temas
-        relacionados = tema.get("temas_relacionados", [])
-        if relacionados:
-            node_path = temas_dir / f"{slug}.md"
-            existing = node_path.read_text(encoding="utf-8")
-            cross_links = " · ".join(f"[[Temas/{r}]]" for r in relacionados if r != slug)
-            if cross_links and "## Temas relacionados" not in existing:
-                node_path.write_text(existing.rstrip() + f"\n\n## Temas relacionados\n{cross_links}\n", encoding="utf-8")
-            elif cross_links:
-                # Append new links that aren't already there
-                for r in relacionados:
-                    link = f"[[Temas/{r}]]"
-                    if r != slug and link not in existing:
-                        existing = node_path.read_text(encoding="utf-8")
-                        node_path.write_text(existing.rstrip() + f" · {link}\n", encoding="utf-8")
+        # Note: temas_relacionados cross-links intentionally removed.
+        # Cross-connections between temas emerge organically when multiple episodes
+        # reference the same temas — not from Claude-generated synthetic links.
 
     # ── 3. Fandom/ hub nodes ─────────────────────────────────────────────────
     log("Actualizando nodos de Fandom/...")
