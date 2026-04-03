@@ -362,7 +362,7 @@ def analyze_with_claude(meta: dict, transcript: dict, comments: list, heatmap_co
     prompt = f"""Eres un analista de cerebros por creador de contenido. Extraes información verificable para alimentar el perfil de {creator_name} en Obsidian.
 {existing_context}
 
-FORMATO DE SALIDA: Responde SOLO con JSON válido. Las cadenas de texto que incluyas en los campos "fuente_exacta", "observacion", "descripcion" y "dato" deben seguir convenciones de Obsidian Markdown cuando sea útil — usa [[wikilinks]] para referenciar personas o temas conocidos del creador, y escribe en español neutro sin markdown adicional (sin **, sin #, sin listas).
+FORMATO DE SALIDA: Responde SOLO con JSON válido. Las cadenas de texto que incluyas en los campos "fuente_exacta", "observacion", "descripcion" y "dato" deben seguir convenciones de Obsidian Markdown cuando sea útil — usa [[wikilinks]] SOLO para referenciar personas (ej: [[Personas/franco-escamilla|Franco Escamilla]]) o temas (ej: [[Temas/proceso-creativo|proceso creativo]]) que ya existan como nodos. NUNCA uses el nombre del podcast como wikilink (no escribas [[Creativo]] ni [[CREATIVO]] — el podcast no es un nodo del grafo). Escribe en español neutro sin markdown adicional (sin **, sin #, sin listas).
 
 REGLA CRÍTICA — temas en dos niveles:
 - tema_especifico: lo particular de este episodio ("payaso como terapia transformadora según Franco Escamilla")
@@ -415,6 +415,7 @@ Responde SOLO con JSON:
       "tema_especifico": "descripción exacta y particular de CÓMO se trató el tema en ESTE episodio — pegada al lenguaje del invitado",
       "tema_general": "concepto abstracto y reutilizable en 2-4 palabras — lo suficientemente amplio para que OTROS episodios puedan referenciarlo",
       "slug": "tema-general-en-kebab-case-sin-acentos — derivado de tema_general, NO de tema_especifico",
+      "campo_semantico": "territorio amplio al que pertenece este tema — 2-3 palabras en español, ej: 'Proceso creativo', 'Negocio creativo', 'Salud y vida', 'Tecnología', 'Identidad y cultura', 'Arte y expresión', 'Escritura', 'Sistemas personales' — usa uno existente si aplica, crea uno nuevo solo si ninguno encaja",
       "fuente_exacta": "cita textual entre comillas O 'MM:SS — descripción del momento'",
       "temas_relacionados": ["solo-slugs-que-aparecen-en-la-lista-de-temas-existentes-arriba"]
     }}
@@ -485,6 +486,61 @@ Solo JSON. Sin texto antes ni después.
 
 
 # ─── Step 6: Update Obsidian notes ───────────────────────────────────────────
+
+def _set_campo_semantico(nota_path: Path, campo: str):
+    """Add or update campo_semantico in a tema note's frontmatter."""
+    if not nota_path.exists() or not campo:
+        return
+    content = nota_path.read_text(encoding="utf-8")
+    if f"campo_semantico: {campo}" in content:
+        return
+    if "campo_semantico:" in content:
+        content = re.sub(r"campo_semantico:.*\n", f"campo_semantico: {campo}\n", content)
+    else:
+        content = content.replace("---\ntipo: tema\n---", f"---\ntipo: tema\ncampo_semantico: {campo}\n---", 1)
+    nota_path.write_text(content, encoding="utf-8")
+
+
+def _generate_campos_hub(creator_dir: Path, temas_dir: Path) -> list[str]:
+    """Group temas by campo_semantico. Create/update Campos/ hub notes. Return list of campo slugs."""
+    campos: dict[str, list[tuple[str, str]]] = {}
+    for md in sorted(temas_dir.glob("*.md")):
+        slug = md.stem
+        content = md.read_text(encoding="utf-8")
+        campo_match = re.search(r"campo_semantico:\s*(.+)", content)
+        if not campo_match:
+            continue
+        campo = campo_match.group(1).strip()
+        name = slug
+        for line in content.splitlines():
+            if line.startswith("# "):
+                name = line[2:].strip()
+                break
+        campos.setdefault(campo, []).append((slug, name))
+
+    if not campos:
+        return []
+
+    campos_dir = creator_dir / "Campos"
+    campos_dir.mkdir(exist_ok=True)
+    campo_slugs = []
+    for campo, temas in sorted(campos.items()):
+        campo_slug = slugify(campo)
+        campo_path = campos_dir / f"{campo_slug}.md"
+        temas_links = "\n".join(f"- [[Temas/{s}|{n}]]" for s, n in sorted(temas))
+        campo_path.write_text(f"""---
+tipo: campo-semantico
+nombre: {campo}
+---
+
+# {campo}
+
+## Temas
+{temas_links}
+""", encoding="utf-8")
+        campo_slugs.append((campo_slug, campo))
+    return campo_slugs
+
 
 def _upsert_hub_node(node_path: Path, node_name: str, node_type: str, episode_link: str, fuente_exacta: str, fecha_video: str = ""):
     """Create or update a hub node (Tema, Fandom, RunningGag, Persona) with a new episode link."""
@@ -609,6 +665,7 @@ Host: [[Perfil del creador]] | Invitado: [[Personas/{invitado.get('slug', slugif
         slug = tema.get("slug") or slugify(tema_general)
         if not slug:
             continue
+        campo = tema.get("campo_semantico", "")
         tema_slugs.append(f"[[Temas/{slug}|{tema_general}]]")
         # Entry shows the specific framing + source
         fuente = tema.get("fuente_exacta", "—")
@@ -621,6 +678,9 @@ Host: [[Perfil del creador]] | Invitado: [[Personas/{invitado.get('slug', slugif
             fuente_exacta=entry_detail,
             fecha_video=fecha_video,
         )
+        # Set campo_semantico in frontmatter
+        if campo:
+            _set_campo_semantico(temas_dir / f"{slug}.md", campo)
         # Add cross-links to related temas
         relacionados = tema.get("temas_relacionados", [])
         if relacionados:
@@ -746,7 +806,11 @@ sujeto: {sujeto}
             fecha_video=fecha_video,
         )
 
-    # ── 7. Perfil del creador — always regenerate with real links ───────────────
+    # ── 7. Campos semánticos hub notes ──────────────────────────────────────────
+    log("Generando Campos semánticos...")
+    campo_slugs = _generate_campos_hub(creator_dir, temas_dir)
+
+    # ── 8. Perfil del creador — minimal hub: only episodes + campos ──────────────
     def _node_links(directory: Path, prefix: str) -> str:
         nodes = _read_existing_nodes(directory)
         if not nodes:
@@ -755,6 +819,13 @@ sujeto: {sujeto}
 
     perfil_path = creator_dir / "Perfil del creador.md"
     log("Actualizando Perfil del creador...")
+
+    episodios_links = _node_links(episodios_dir, "Episodios")
+    if campo_slugs:
+        campos_links = "\n".join(f"- [[Campos/{cs}|{cn}]]" for cs, cn in campo_slugs)
+    else:
+        campos_links = _node_links(temas_dir, "Temas")  # fallback if no campos yet
+
     perfil_path.write_text(f"""---
 tipo: perfil-creador
 creador: {creator_name}
@@ -764,25 +835,14 @@ tags:
 
 # {creator_name} — Perfil del creador
 
-> Punto de entrada. Los nodos con más conexiones en el grafo = temas/rasgos nucleares.
+> Punto de entrada al cerebro. Navega por campos semánticos o entra directo a un episodio.
+> Los nodos con más conexiones en el grafo = temas nucleares del creador.
 
 ## Episodios analizados
-{_node_links(episodios_dir, "Episodios")}
+{episodios_links}
 
-## Temas nucleares del canal
-{_node_links(temas_dir, "Temas")}
-
-## Rasgos del creador
-{_node_links(rasgos_dir, "Rasgos")}
-
-## Running gags y catchphrases
-{_node_links(gags_dir, "RunningGags")}
-
-## Personas frecuentes
-{_node_links(personas_dir, "Personas")}
-
-## Datos personales
-{_node_links(creator_dir / "DatosPersonales" / creator_name, f"DatosPersonales/{creator_name}")}
+## Campos semánticos
+{campos_links}
 """, encoding="utf-8")
 
     # ── 8. Perfil del fandom — always regenerate with real links ────────────────
